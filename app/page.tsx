@@ -64,7 +64,7 @@ function formatTimer(seconds: number) {
 
 function expiryOrFallback(value?: string) {
   const parsed = Date.parse(value || "");
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  return Number.isFinite(parsed) && parsed > Date.now() ? new Date(parsed).toISOString() : new Date(Date.now() + 15 * 60 * 1000).toISOString();
 }
 
 function displayExpiry(value: string) {
@@ -131,6 +131,7 @@ export default function Home() {
   const [notice, setNotice] = useState("Sẵn sàng thuê Gmail mới.");
   const [error, setError] = useState("");
   const restoredDeviceHistory = useRef(false);
+  const codeRequestInFlight = useRef(false);
 
   const loadProduct = useCallback(async () => {
     try {
@@ -192,6 +193,8 @@ export default function Home() {
 
   const pollCode = useCallback(async (allowExpired = false) => {
     if (!rental || (!allowExpired && secondsRemaining(rental.expires_at) <= 0)) return;
+    if (codeRequestInFlight.current) return;
+    codeRequestInFlight.current = true;
     try {
       const data = await api<{ email?: string; rental_status?: string; codes?: Array<string | number>; code?: string | number | null }>(`/api/code?order=${encodeURIComponent(rental.order)}`);
       const currentEmail = data.email || rental.email;
@@ -215,13 +218,15 @@ export default function Home() {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không kiểm tra được OTP");
+    } finally {
+      codeRequestInFlight.current = false;
     }
   }, [rental]);
 
   useEffect(() => {
     if (!rental || secondsRemaining(rental.expires_at) <= 0) return;
     const immediate = window.setTimeout(() => void pollCode(), 0);
-    const timer = window.setInterval(() => void pollCode(), 3000);
+    const timer = window.setInterval(() => void pollCode(), 1000);
     return () => { window.clearTimeout(immediate); window.clearInterval(timer); };
   }, [rental, pollCode]);
 
