@@ -1,0 +1,16 @@
+.env*
+!.env.example
+.openai
+.sites-runtime
+.wrangler
+dist
+build
+db
+drizzle
+examples
+scripts
+tests
+worker
+vite.config.ts
+drizzle.config.ts
+.npmrc
