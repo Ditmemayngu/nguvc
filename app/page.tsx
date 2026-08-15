@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Product = { id: number; name: string; price: number | string; stock?: number };
 type Rental = {
@@ -20,6 +20,14 @@ type OtpEntry = {
   receivedAt: string;
 };
 type ApiErrorPayload = { error?: string; message?: string };
+
+const DEVICE_STORAGE_KEY = "vunvo36-gmail-otp-history-v1";
+
+type DeviceHistory = {
+  activeOrder?: string;
+  rentals?: Rental[];
+  codes?: OtpEntry[];
+};
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -52,6 +60,16 @@ function secondsRemaining(expiresAt?: string) {
 
 function formatTimer(seconds: number) {
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function expiryOrFallback(value?: string) {
+  const parsed = Date.parse(value || "");
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date(Date.now() + 15 * 60 * 1000).toISOString();
+}
+
+function displayExpiry(value: string) {
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(time) : "—";
 }
 
 function CopyButton({ value, label = "Sao chép" }: { value: string; label?: string }) {
@@ -106,11 +124,13 @@ export default function Home() {
   const [authState, setAuthState] = useState<"loading" | "in" | "out">("loading");
   const [product, setProduct] = useState<Product | null>(null);
   const [rental, setRental] = useState<Rental | null>(null);
+  const [rentalHistory, setRentalHistory] = useState<Rental[]>([]);
   const [history, setHistory] = useState<OtpEntry[]>([]);
   const [remaining, setRemaining] = useState(0);
   const [busy, setBusy] = useState<"rent" | "rerent" | null>(null);
   const [notice, setNotice] = useState("Sẵn sàng thuê Gmail mới.");
   const [error, setError] = useState("");
+  const restoredDeviceHistory = useRef(false);
 
   const loadProduct = useCallback(async () => {
     try {
@@ -137,6 +157,32 @@ export default function Home() {
   }, [checkSession]);
 
   useEffect(() => {
+    if (authState !== "in" || restoredDeviceHistory.current) return;
+    restoredDeviceHistory.current = true;
+    const restore = window.setTimeout(() => {
+      try {
+        const saved = JSON.parse(window.localStorage.getItem(DEVICE_STORAGE_KEY) || "{}") as DeviceHistory;
+        const rentals = Array.isArray(saved.rentals) ? saved.rentals : [];
+        const codes = Array.isArray(saved.codes) ? saved.codes : [];
+        const active = rentals.find((item) => item.order === saved.activeOrder) || rentals[0] || null;
+        setRentalHistory(rentals);
+        setHistory(codes);
+        setRental(active);
+        if (active) setNotice("Đã khôi phục lịch sử thuê trên máy này.");
+      } catch {
+        window.localStorage.removeItem(DEVICE_STORAGE_KEY);
+      }
+    }, 0);
+    return () => window.clearTimeout(restore);
+  }, [authState]);
+
+  useEffect(() => {
+    if (authState !== "in" || !restoredDeviceHistory.current) return;
+    const saved: DeviceHistory = { activeOrder: rental?.order, rentals: rentalHistory, codes: history };
+    window.localStorage.setItem(DEVICE_STORAGE_KEY, JSON.stringify(saved));
+  }, [authState, rental, rentalHistory, history]);
+
+  useEffect(() => {
     if (!rental) return;
     const tick = () => setRemaining(secondsRemaining(rental.expires_at));
     tick();
@@ -144,37 +190,48 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, [rental]);
 
-  const pollCode = useCallback(async () => {
-    if (!rental || secondsRemaining(rental.expires_at) <= 0) return;
+  const pollCode = useCallback(async (allowExpired = false) => {
+    if (!rental || (!allowExpired && secondsRemaining(rental.expires_at) <= 0)) return;
     try {
       const data = await api<{ email?: string; rental_status?: string; codes?: Array<string | number>; code?: string | number | null }>(`/api/code?order=${encodeURIComponent(rental.order)}`);
-      setRental((current) => current ? { ...current, email: data.email || current.email, rental_status: data.rental_status || current.rental_status } : current);
+      const currentEmail = data.email || rental.email;
+      setRental((current) => {
+        if (!current) return current;
+        const email = data.email || current.email;
+        const rental_status = data.rental_status || current.rental_status;
+        return email === current.email && rental_status === current.rental_status ? current : { ...current, email, rental_status };
+      });
+      setRentalHistory((current) => current.map((item) => item.order === rental.order ? { ...item, email: currentEmail, rental_status: data.rental_status || item.rental_status } : item));
       const received = [...new Set([...(Array.isArray(data.codes) ? data.codes : []), data.code]
         .filter((code): code is string | number => code !== null && code !== undefined && String(code).trim() !== "")
         .map(String))];
-      const known = new Set(history.map((item) => item.id));
-      const fresh = received.filter((code) => !known.has(`${rental.order}-${rental.cycle}-${code}`));
-      if (fresh.length) {
-        const additions = fresh.map((code) => ({ id: `${rental.order}-${rental.cycle}-${code}`, code, email: rental.email, order: rental.order, cycle: rental.cycle, receivedAt: new Date().toLocaleTimeString("vi-VN", { hour12: false }) }));
-        setHistory((current) => [...current, ...additions]);
+      setHistory((current) => {
+        const known = new Set(current.map((item) => item.id));
+        const fresh = received.filter((code) => !known.has(`${rental.order}-${rental.cycle}-${code}`));
+        if (!fresh.length) return current;
+        const additions = fresh.map((code) => ({ id: `${rental.order}-${rental.cycle}-${code}`, code, email: currentEmail, order: rental.order, cycle: rental.cycle, receivedAt: new Date().toLocaleTimeString("vi-VN", { hour12: false }) }));
         setNotice(`Đã nhận ${fresh.length} mã OTP mới.`);
-      }
+        return [...current, ...additions];
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không kiểm tra được OTP");
     }
-  }, [rental, history]);
+  }, [rental]);
 
   useEffect(() => {
     if (!rental || secondsRemaining(rental.expires_at) <= 0) return;
+    const immediate = window.setTimeout(() => void pollCode(), 0);
     const timer = window.setInterval(() => void pollCode(), 3000);
-    return () => window.clearInterval(timer);
+    return () => { window.clearTimeout(immediate); window.clearInterval(timer); };
   }, [rental, pollCode]);
 
   const rentNew = async () => {
     setBusy("rent"); setError(""); setNotice("Đang thuê Gmail mới…");
     try {
       const data = await api<Omit<Rental, "cycle">>("/api/rent", { method: "POST", body: "{}" });
-      setRental({ ...data, cycle: 1, rental_status: data.rental_status || "waiting" });
+      const next = { ...data, expires_at: expiryOrFallback(data.expires_at), cycle: 1, rental_status: data.rental_status || "waiting" };
+      setRental(next);
+      setRentalHistory((current) => [next, ...current.filter((item) => item.order !== next.order)]);
       setNotice("Đã thuê Gmail mới. Hệ thống đang chờ OTP.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không thuê được Gmail");
@@ -187,7 +244,9 @@ export default function Home() {
     setBusy("rerent"); setError(""); setNotice("Đang thuê lại Gmail…");
     try {
       const data = await api<Omit<Rental, "cycle">>("/api/rerent", { method: "POST", body: JSON.stringify({ order: rental.order }) });
-      setRental((current) => current ? { ...current, ...data, cycle: current.cycle + 1, rental_status: "waiting" } : current);
+      const next = { ...rental, ...data, expires_at: expiryOrFallback(data.expires_at), cycle: rental.cycle + 1, rental_status: "waiting" };
+      setRental(next);
+      setRentalHistory((current) => [next, ...current.filter((item) => item.order !== next.order)]);
       setNotice("Đã thuê lại Gmail. Hệ thống đang chờ OTP mới.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không thuê lại được Gmail");
@@ -198,6 +257,7 @@ export default function Home() {
   const logout = async () => {
     await api("/api/logout", { method: "POST", body: "{}" }).catch(() => undefined);
     setAuthState("out"); setRental(null); setHistory([]);
+    restoredDeviceHistory.current = false;
   };
 
   const [alias1, alias2] = useMemo(() => aliases(rental?.email || ""), [rental?.email]);
@@ -239,7 +299,8 @@ export default function Home() {
                   <div className="emailRow"><span><small>Biến thể 2</small><strong>{alias2}</strong></span><CopyButton value={alias2} /></div>
                 </div>
                 <div className="rentalMeta"><span><small>Mã đơn</small><strong>{rental.order}</strong></span><span><small>Trạng thái</small><strong className="statusValue"><i />{rental.rental_status || "waiting"}</strong></span><span><small>Lượt thuê</small><strong>#{rental.cycle}</strong></span></div>
-                <button className="secondaryButton" onClick={rerent} disabled={!canRerent || busy !== null}>{busy === "rerent" ? "Đang thuê lại…" : "Thuê lại Gmail này"}<small>Chỉ khả dụng sau khi đã nhận OTP · có tính phí</small></button>
+                <p className="expiryLine">Hết hạn lúc <strong>{displayExpiry(rental.expires_at)}</strong> · đồng hồ tự dừng khi về 00:00.</p>
+                <div className="rentalButtons"><button className="checkButton" onClick={() => void pollCode(true)} disabled={busy !== null}>Kiểm tra trạng thái/OTP</button><button className="secondaryButton" onClick={rerent} disabled={!canRerent || busy !== null}>{busy === "rerent" ? "Đang thuê lại…" : "Thuê lại Gmail này"}<small>Chỉ khả dụng sau khi đã nhận OTP · có tính phí</small></button></div>
               </>
             ) : <div className="emptyRental"><div className="emptyIcon">@</div><p>Nhấn <strong>Thuê Gmail mới</strong> để bắt đầu.</p><span>Hai biến thể sẽ được tạo tự động.</span></div>}
           </section>
@@ -254,7 +315,19 @@ export default function Home() {
           </aside>
         </div>
 
-        <footer><p><span className="statusDot" /> {notice}</p><span>OTP chỉ hiển thị trong phiên này, không lưu vào cơ sở dữ liệu.</span></footer>
+        <section className="historyCard">
+          <div className="historyHeading"><div><p className="eyebrow">Lưu trên máy này</p><h2>Lịch sử Gmail đã thuê</h2></div><span>{rentalHistory.length} đơn</span></div>
+          {rentalHistory.length ? <div className="rentalHistoryList">{rentalHistory.map((item) => {
+            const isActive = item.order === rental?.order;
+            const itemRemaining = secondsRemaining(item.expires_at);
+            return <article className={`historyRental ${isActive ? "active" : ""}`} key={item.order}>
+              <div><strong>{item.email}</strong><span>Đơn {item.order} · lượt #{item.cycle} · {item.rental_status || "waiting"}</span></div>
+              <div className="historyActions"><time className={itemRemaining === 0 ? "expired" : ""}>{itemRemaining ? formatTimer(itemRemaining) : "Đã hết hạn"}</time><button type="button" onClick={() => { setRental(item); setNotice("Đã mở lại đơn thuê đã lưu trên máy này. Hãy kiểm tra trạng thái để thuê lại."); }}> {isActive ? "Đang mở" : "Mở đơn"}</button></div>
+            </article>;
+          })}</div> : <p className="historyEmpty">Các Gmail bạn thuê sẽ tự lưu tại trình duyệt này, kể cả khi bạn tải lại trang.</p>}
+        </section>
+
+        <footer><p><span className="statusDot" /> {notice}</p><span>Lịch sử và OTP được lưu cục bộ trên máy này; không gửi vào cơ sở dữ liệu.</span></footer>
       </div>
     </main>
   );

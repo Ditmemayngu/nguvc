@@ -133,6 +133,11 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .rentalMeta strong { font: 560 12px var(--font-geist-mono), monospace; overflow: hidden; text-overflow: ellipsis; }
 .statusValue { color: #9be6bf; text-transform: capitalize; }
 .statusValue i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); margin-right: 7px; }
+.expiryLine { margin: -4px 0 14px; color: var(--muted); font-size: 11px; }
+.expiryLine strong { color: #d9e0ec; font-family: var(--font-geist-mono), monospace; }
+.rentalButtons { display: grid; grid-template-columns: .8fr 1.2fr; gap: 9px; }
+.checkButton { border: 1px solid rgba(255,255,255,.1); border-radius: 11px; color: #cbd3df; background: rgba(255,255,255,.04); font-size: 12px; font-weight: 650; }
+.checkButton:hover:not(:disabled) { border-color: rgba(230,185,78,.45); color: var(--gold-2); }
 .secondaryButton { width: 100%; padding: 13px; border: 1px solid rgba(230,185,78,.2); border-radius: 11px; background: rgba(230,185,78,.055); color: var(--gold-2); font-weight: 670; }
 .secondaryButton small { display: block; color: var(--muted); margin-top: 3px; font-weight: 450; font-size: 10px; }
 
@@ -163,6 +168,23 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .errorBanner > span { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; background: rgba(255,111,120,.15); font-weight: 800; }
 .errorBanner p { flex: 1; margin: 0; }
 .errorBanner button { border: 0; background: transparent; color: #ffc2c6; font-size: 20px; }
+.historyCard { margin-top: 18px; border: 1px solid var(--line); border-radius: 19px; padding: 23px 25px; background: linear-gradient(160deg, rgba(21,26,38,.82), rgba(13,16,24,.9)); }
+.historyHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.historyHeading h2 { margin: 0; font-size: 21px; letter-spacing: -.03em; }
+.historyHeading > span { color: var(--gold-2); font: 11px var(--font-geist-mono), monospace; padding: 7px 9px; border-radius: 999px; background: rgba(230,185,78,.08); }
+.rentalHistoryList { display: grid; gap: 8px; }
+.historyRental { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 14px; border: 1px solid rgba(255,255,255,.065); border-radius: 11px; background: rgba(255,255,255,.022); }
+.historyRental.active { border-color: rgba(230,185,78,.35); background: rgba(230,185,78,.045); }
+.historyRental > div:first-child { min-width: 0; }
+.historyRental strong, .historyRental span { display: block; }
+.historyRental strong { font: 560 12px var(--font-geist-mono), monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.historyRental span { margin-top: 6px; color: var(--muted); font: 10px var(--font-geist-mono), monospace; }
+.historyActions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.historyActions time { color: var(--gold-2); font: 11px var(--font-geist-mono), monospace; }
+.historyActions time.expired { color: var(--red); }
+.historyActions button { border: 1px solid rgba(255,255,255,.1); border-radius: 8px; color: #cbd3df; background: rgba(255,255,255,.04); padding: 7px 9px; font-size: 11px; }
+.historyActions button:hover { color: var(--gold-2); border-color: rgba(230,185,78,.4); }
+.historyEmpty { margin: 0; color: var(--muted); font-size: 12px; }
 footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 18px; color: #687184; font-size: 11px; }
 footer p { margin: 0; color: #9ea7b7; }
 footer .statusDot { margin-right: 8px; }
@@ -212,6 +234,10 @@ footer .statusDot { margin-right: 8px; }
   .emailRow strong { white-space: normal; overflow-wrap: anywhere; }
   .rentalMeta { grid-template-columns: 1fr; gap: 14px; }
   .rentalMeta > span + span { border-left: 0; }
+  .rentalButtons { grid-template-columns: 1fr; }
+  .historyCard { padding: 18px; }
+  .historyRental { align-items: flex-start; flex-direction: column; }
+  .historyActions { width: 100%; justify-content: space-between; }
   footer { flex-direction: column; }
   .loginCard { padding: 28px 22px; }
 }
